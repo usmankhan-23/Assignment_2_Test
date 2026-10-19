@@ -740,5 +740,557 @@ int Crew::estimate(const Vault& vault) const{
 
 
 
+class Operation {
+private:
+    char* name;
+    Crew** crews;
+    Vault** vaults;
+    int crewTotal;
+    int vaultTotal;
+    int crewCapacity;
+    int vaultCapacity;
+    bool done;
+    u64 lootTotal;
+    static int heat;
+    static int liveCount;
+    Operation& operator=(const Operation&);
+    int* makePlan(int* starts, int* ends, u64* values) const;
+public:
+    Operation(const char* codename);
+    Operation(const Operation& other);
+    ~Operation();
+    const char* getName() const;
+    void setName(const char* name);
+    int addCrew(const Crew& crew);
+    int addCrew(const char* name);
+    int addVault(const Vault& vault);
+    int addVault(const char* name, u32 base, u64 exp, u32 m,int windowStart, int windowEnd);
+    int crewCount() const;
+    int vaultCount() const;
+    const Crew* getCrew(int index) const;
+    Crew* getCrew(int index);
+    const Vault* getVault(int index) const;
+    Vault* getVault(int index);
+    int findCrew(const char* name) const;
+    int findVault(const char* name) const;
+    void printPlan() const;
+    u64 execute();
+    bool isDone() const;
+    u64 totalLoot() const;
+    static int getHeat();
+    static void addHeat(int delta);
+    static void resetHeat();
+    static int live();
+};
+u32 Lock::crack(){
+    if (cracked){
+        return code;
+    }
+    if (type == 'M'){
+        long long oldR = p1;
+        long long r = p2;
+        long long oldS = 1;
+        long long s = 0;
+        while (r != 0){
+            long long q = oldR / r;
+            long long temp = oldR - q * r;
+            oldR = r;
+            r = temp;
+            temp = oldS - q * s;
+            oldS = s;
+            s = temp;
+        }
+        code = (u32)((oldS % p2 + p2) % p2);
+    }
+    else if (type == 'G'){
+        code = p1;
+        code ^= code >> 1;
+        code ^= code >> 2;
+        code ^= code >> 4;
+        code ^= code >> 8;
+        code ^= code >> 16;
+    }
+    else if (type == 'X'){
+        u32 x = p1;
+        for (u32 i = 0; i < p2; i++){
+            x ^= x << 5;
+            x ^= x << 10;
+            x ^= x << 20;
+            x ^= x >> 17;
+            x ^= x << 13;
+            x ^= x << 26;
+        }
+        code = x;
+    }
+    cracked = true;
+    if (type == 'X' && p2 >= 50000){
+        Operation::addHeat(3);
+    }
+    else{
+        Operation::addHeat(1);
+    }
+    return code;
+}
+int Operation::heat = 0;
+int Operation::liveCount = 0;
+Operation::Operation(const char* codename): name(new char[std::strlen(codename ? codename : "") + 1]),crews(new Crew* [2]),vaults(new Vault* [2]),crewTotal(0),vaultTotal(0),crewCapacity(2),vaultCapacity(2),done(false),lootTotal(0){
+    std::strcpy(name, codename ? codename : "");
+    crews[0] = nullptr;
+    crews[1] = nullptr;
+    vaults[0] = nullptr;
+    vaults[1] = nullptr;
+    liveCount++;
+}
+Operation::Operation(const Operation& other): name(new char[std::strlen(other.name) + 1]),crews(new Crew* [other.crewCapacity]),vaults(new Vault* [other.vaultCapacity]),crewTotal(other.crewTotal),vaultTotal(other.vaultTotal),crewCapacity(other.crewCapacity),vaultCapacity(other.vaultCapacity),done(false),lootTotal(0){
+    std::strcpy(name, other.name);
+    for (int i = 0; i < crewCapacity; i++){
+        crews[i] = nullptr;
+    }
+    for (int i = 0; i < vaultCapacity; i++){
+        vaults[i] = nullptr;
+    }
+    for (int i = 0; i < crewTotal; i++){
+        crews[i] = new Crew(*other.crews[i]);
+    }
+    for (int i = 0; i < vaultTotal; i++){
+        vaults[i] = new Vault(*other.vaults[i]);
+    }
+    liveCount++;
+    addHeat(3);
+}
+Operation::~Operation(){
+    for (int i = 0; i < crewTotal; i++){
+        delete crews[i];
+    }
+    for (int i = 0; i < vaultTotal; i++){
+        delete vaults[i];
+    }
+    delete[] crews;
+    delete[] vaults;
+    delete[] name;
+    addHeat(-2);
+    liveCount--;
+}
+const char* Operation::getName() const{
+    return name;
+}
+void Operation::setName(const char* newName){
+    if (newName == nullptr){
+        return;
+    }
+    char* temp = new char[std::strlen(newName) + 1];
+    std::strcpy(temp, newName);
+    delete[] name;
+    name = temp;
+}
+int Operation::addCrew(const Crew& crew){
+    if (crewTotal >= 20){
+        return -1;
+    }
+    if (crewTotal == crewCapacity){
+        int newCapacity = crewCapacity * 2;
+        Crew** temp = new Crew * [newCapacity];
+        for (int i = 0; i < crewTotal; i++){
+            temp[i] = crews[i];
+        }
+        for (int i = crewTotal; i < newCapacity; i++){
+            temp[i] = nullptr;
+        }
+        delete[] crews;
+        crews = temp;
+        crewCapacity = newCapacity;
+    }
+    crews[crewTotal] = new Crew(crew);
+    int index = crewTotal;
+    crewTotal++;
+    return index;
+}
+int Operation::addCrew(const char* crewName){
+    if (crewName == nullptr || crewTotal >= 20){
+        return -1;
+    }
+    Crew crew(crewName);
+    return addCrew(crew);
+}
+int Operation::addVault(const Vault& vault){
+    if (vaultTotal >= 20) {
+        return -1;
+    }
+    if (vaultTotal == vaultCapacity){
+        int newCapacity = vaultCapacity * 2;
+        Vault** temp = new Vault * [newCapacity];
+        for (int i = 0; i < vaultTotal; i++){
+            temp[i] = vaults[i];
+        }
+        for (int i = vaultTotal; i < newCapacity; i++){
+            temp[i] = nullptr;
+        }
+        delete[] vaults;
+        vaults = temp;
+        vaultCapacity = newCapacity;
+    }
+    vaults[vaultTotal] = new Vault(vault);
+    int index = vaultTotal;
+    vaultTotal++;
+    return index;
+}
+int Operation::addVault(const char* vaultName, u32 base, u64 exp,u32 m, int windowStart, int windowEnd){
+    if (vaultName == nullptr || vaultTotal >= 20){
+        return -1;
+    }
+    Vault vault(vaultName, base, exp, m, windowStart, windowEnd);
+    return addVault(vault);
+}
+int Operation::crewCount() const{
+    return crewTotal;
+}
+int Operation::vaultCount() const{
+    return vaultTotal;
+}
+const Crew* Operation::getCrew(int index) const{
+    if (index < 0 || index >= crewTotal){
+        return nullptr;
+    }
+    return crews[index];
+}
+Crew* Operation::getCrew(int index){
+    if (index < 0 || index >= crewTotal){
+        return nullptr;
+    }
+    return crews[index];
+}
+const Vault* Operation::getVault(int index) const{
+    if (index < 0 || index >= vaultTotal){
+        return nullptr;
+    }
+    return vaults[index];
+}
+Vault* Operation::getVault(int index){
+    if (index < 0 || index >= vaultTotal){
+        return nullptr;
+    }
+    return vaults[index];
+}
+int Operation::findCrew(const char* crewName) const{
+    if (crewName == nullptr){
+        return -1;
+    }
+    for (int i = 0; i < crewTotal; i++){
+        if (std::strcmp(crews[i]->getName(), crewName) == 0){
+            return i;
+        }
+    }
+    return -1;
+}
 
+int Operation::findVault(const char* vaultName) const{
+    if (vaultName == nullptr){
+        return -1;
+    }
 
+    for (int i = 0; i < vaultTotal; i++){
+        if (std::strcmp(vaults[i]->getName(), vaultName) == 0){
+            return i;
+        }
+    }
+    return -1;
+}
+
+int* Operation::makePlan(int* starts, int* ends, u64* values) const{
+    int* assigned = new int[vaultTotal];
+    for (int i = 0; i < vaultTotal; i++){
+        assigned[i] = -1;
+        starts[i] = 0;
+        ends[i] = 0;
+        values[i] = 0;
+    }
+    for (int c = 0; c < crewTotal; c++){
+        if (crews[c]->memberCount() == 0){
+            continue;
+        }
+        int* ids = new int[vaultTotal];
+        int count = 0;
+        for (int v = 0; v < vaultTotal; v++){
+            if (assigned[v] != -1){
+                continue;
+            }
+            int duration = crews[c]->estimate(*vaults[v]);
+            if (duration < 0){
+                continue;
+            }
+            int start = vaults[v]->windowStart();
+            int finish = start + duration;
+            if (finish > vaults[v]->windowEnd()){
+                continue;
+            }
+            starts[v] = start;
+            ends[v] = finish;
+            values[v] = vaults[v]->loot();
+            ids[count] = v;
+            count++;
+        }
+        for (int i = 0; i < count - 1; i++){
+            for (int j = 0; j < count - i - 1; j++){
+                int a = ids[j];
+                int b = ids[j + 1];
+                if (ends[a] > ends[b]){
+                    int temp = ids[j];
+                    ids[j] = ids[j + 1];
+                    ids[j + 1] = temp;
+                }
+            }
+        }
+        u64* best = new u64[count + 1];
+        int* previous = new int[count + 1];
+        best[0] = 0;
+        previous[0] = 0;
+        for (int i = 1; i <= count; i++){
+            int current = ids[i - 1];
+            int p = 0;
+            for (int j = i - 1; j >= 1; j--){
+                int earlier = ids[j - 1];
+                if (ends[earlier] <= starts[current]){
+                    p = j;
+                    break;
+                }
+            }
+            previous[i] = p;
+            u64 take = values[current] + best[p];
+            u64 skip = best[i - 1];
+            if (take > skip){
+                best[i] = take;
+            }
+            else{
+                best[i] = skip;
+            }
+        }
+        int i = count;
+        while (i > 0){
+            if (best[i] == best[i - 1]){
+                i--;
+            }
+            else{
+                assigned[ids[i - 1]] = c;
+                i = previous[i];
+            }
+        }
+        delete[] best;
+        delete[] previous;
+        delete[] ids;
+    }
+    return assigned;
+}
+void Operation::printPlan() const{
+    int* starts = new int[vaultTotal];
+    int* ends = new int[vaultTotal];
+    u64* values = new u64[vaultTotal];
+    int* assigned = makePlan(starts, ends, values);
+    std::cout << "PLAN " << name << '\n';
+    bool* printed = new bool[vaultTotal];
+    for (int c = 0; c < crewTotal; c++){
+        for (int i = 0; i < vaultTotal; i++){
+            printed[i] = false;
+        }
+        u64 crewLoot = 0;
+        int selected = 0;
+        for (int v = 0; v < vaultTotal; v++){
+            if (assigned[v] == c){
+                selected++;
+                crewLoot += values[v];
+            }
+        }
+        std::cout << "Crew " << crews[c]->getName() << " -> ";
+        if (selected == 0 || crews[c]->memberCount() == 0){
+            std::cout << "(idle) loot=0\n";
+            continue;
+        }
+        bool first = true;
+        for (int n = 0; n < selected; n++){
+            int chosen = -1;
+            for (int v = 0; v < vaultTotal; v++){
+                if (assigned[v] != c || printed[v]){
+                    continue;
+                }
+                if (chosen == -1 || starts[v] < starts[chosen] || (starts[v] == starts[chosen] && v < chosen)){
+                    chosen = v;
+                }
+            }
+            if (chosen == -1){
+                break;
+            }
+            printed[chosen] = true;
+            if (!first){
+                std::cout << ' ';
+            }
+            std::cout << vaults[chosen]->getName()<< '[' << starts[chosen]<< ',' << ends[chosen] << ')';
+            first = false;
+        }
+        std::cout << " loot=" << crewLoot << '\n';
+    }
+    std::cout << "Unassigned:";
+    bool anyUnassigned = false;
+    for (int v = 0; v < vaultTotal; v++){
+        if (assigned[v] == -1){
+            std::cout << ' ' << vaults[v]->getName();
+            anyUnassigned = true;
+        }
+    }
+    if (!anyUnassigned){
+        std::cout << " none";
+    }
+    std::cout << '\n';
+    delete[] printed;
+    delete[] assigned;
+    delete[] starts;
+    delete[] ends;
+    delete[] values;
+}
+u64 Operation::execute(){
+    if (done){
+        return lootTotal;
+    }
+    int* starts = new int[vaultTotal];
+    int* ends = new int[vaultTotal];
+    u64* values = new u64[vaultTotal];
+    int* assigned = makePlan(starts, ends, values);
+    int* busyUntil = new int[crewTotal];
+    for (int c = 0; c < crewTotal; c++){
+        busyUntil[c] = 0;
+    }
+    lootTotal = 0;
+    for (int c = 0; c < crewTotal; c++){
+        bool* printed = new bool[vaultTotal];
+        for (int v = 0; v < vaultTotal; v++){
+            printed[v] = false;
+        }
+        for (int n = 0; n < vaultTotal; n++){
+            int chosen = -1;
+            for (int v = 0; v < vaultTotal; v++){
+                if (assigned[v] != c || printed[v]){
+                    continue;
+                }
+                if (chosen == -1 || starts[v] < starts[chosen] || (starts[v] == starts[chosen] && v < chosen)) {chosen = v;
+                }
+            }
+            if (chosen == -1){
+                break;
+            }
+            printed[chosen] = true;
+            Vault* vault = vaults[chosen];
+            if (heat == 100){
+                std::cout << '[' << crews[c]->getName() << "] "<< vault->getName()<< " ABORT heat=" << heat << '\n';
+                continue;
+            }
+            int start = vault->windowStart();
+            if (busyUntil[c] > start){
+                start = busyUntil[c];
+            }
+            bool alert = heat >= 60;
+            int duration = crews[c]->execute(*vault);
+            if (alert){
+                duration = (3 * duration + 1) / 2;
+            }
+            int finish = start + duration;
+            busyUntil[c] = finish;
+            if (finish <= vault->windowEnd()){
+                lootTotal += vault->loot();
+                addHeat(vault->noise() / 8);
+                std::cout << '[' << crews[c]->getName() << "] "<< vault->getName()<< " start=" << start<< " finish=" << finish<< " OK heat=" << heat << '\n';
+            }
+            else{
+                addHeat(10);
+                std::cout << '[' << crews[c]->getName() << "] "<< vault->getName()<< " start=" << start<< " finish=" << finish<< " BLOWN heat=" << heat << '\n';
+            }
+        }
+        delete[] printed;
+    }
+    done = true;
+    std::cout << "TOTAL LOOT " << lootTotal << '\n';
+    std::cout << "HEAT " << heat << '\n';
+    delete[] busyUntil;
+    delete[] assigned;
+    delete[] starts;
+    delete[] ends;
+    delete[] values;
+    return lootTotal;
+}
+bool Operation::isDone() const{
+    return done;
+}
+u64 Operation::totalLoot() const{
+    return lootTotal;
+}
+int Operation::getHeat(){
+    return heat;
+}
+void Operation::addHeat(int delta){
+    heat += delta;
+    if (heat < 0){
+        heat = 0;
+    }
+    if (heat > 100){
+        heat = 100;
+    }
+}
+void Operation::resetHeat(){
+    heat = 0;
+}
+int Operation::live(){
+    return liveCount;
+}
+int Crew::execute(Vault& vault){
+    if (count == 0) {
+        return -1;
+    }
+    int totalLocks = vault.lockCount();
+    Lock** locksToDo = new Lock * [totalLocks];
+    int lockCount = 0;
+    for (int i = 0; i < totalLocks; i++){
+        Lock* lock = vault.getLock(i);
+        if (lock != nullptr && !lock->isCracked()){
+            locksToDo[lockCount] = lock;
+            lockCount++;
+        }
+    }
+    for (int i = 0; i < lockCount - 1; i++){
+        for (int j = 0; j < lockCount - i - 1; j++){
+            if (locksToDo[j]->getBaseTime() <
+                locksToDo[j + 1]->getBaseTime()){
+                Lock* temp = locksToDo[j];
+                locksToDo[j] = locksToDo[j + 1];
+                locksToDo[j + 1] = temp;
+            }
+        }
+    }
+    int* finish = new int[count];
+    for (int i = 0; i < count; i++){
+        finish[i] = 0;
+    }
+    int penalty = 0;
+    if (count > 3){
+        penalty = 1;
+    }
+    for (int i = 0; i < lockCount; i++){
+        int bestMember = 0;
+        int bestFinish = finish[0] + members[0]->timeFor(*locksToDo[i]) + penalty;
+        for (int j = 1; j < count; j++){
+            int candidate = finish[j] + members[j]->timeFor(*locksToDo[i]) + penalty;
+            if (candidate < bestFinish){
+                bestFinish = candidate;
+                bestMember = j;
+            }
+        }
+        finish[bestMember] = bestFinish;
+        members[bestMember]->work(*locksToDo[i]);
+        locksToDo[i]->crack();
+    }
+    int duration = 1;
+    for (int i = 0; i < count; i++){
+        if (finish[i] > duration){
+            duration = finish[i];
+        }
+    }
+    delete[] finish;
+    delete[] locksToDo;
+    return duration;
+}
