@@ -31,6 +31,7 @@ public:
 		const Gene& gene(int locus) const;
 		static int live();
 	private:
+		friend class Cell;
 		int id;
 		int geneCount;
 		int telomere;
@@ -43,7 +44,7 @@ public:
 	
 	Cell();
 	Cell(const char* species, int ploidy, int chromosomes, int genesPerChromosome,int telomere, const char* genome);
-	Cell(const char* species, int ploidy, int chromosomes, int genesPerChromosome,const char* genome);
+	Cell(const char* species, int ploidy, int chromosomes, int genesPerChromosome, const char* genome);
 	Cell(const Cell& other);
 	~Cell();
 	bool isValid() const;
@@ -84,9 +85,401 @@ public:
 	static int getRefusedDivisions();
 	static void resetStatistics();
 private:
+	char* const species;
+	int ploidy;
+	int chromosomeCount;
+	int genesPerChromosome;
+	Chromosome* chromosomes;
+	bool valid;
+	static int liveCells;
+	static int totalCreated;
+	static int totalMutations;
+	static int totalCrossovers;
+	static int refusedDivisions;
+	static uint64_t seed;
+	static int copyErrorRate;
+	static int crossoverPercent;
+	bool validSpecies(const char* species) const;
 	Cell& operator=(const Cell&);
 };
+int Cell::liveCells = 0;
+int Cell::totalCreated = 0;
+int Cell::totalMutations = 0;
+int Cell::totalCrossovers = 0;
+int Cell::refusedDivisions = 0;
+uint64_t Cell::seed = 0;
+int Cell::copyErrorRate = 100;
+int Cell::crossoverPercent = 50;
 int Cell::Chromosome::liveCount = 0;
+bool Cell::validSpecies(const char* species) const{
+	if (species == nullptr){
+		return false;
+	}
+	int length = 0;
+	while (species[length] != '\0'){
+		char ch = species[length];
+		if (!((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_')){
+			return false;
+		}
+		length++;
+		if (length > 20){
+			return false;
+		}
+	}
+	return length >= 1 && length <= 20;
+}
+Cell::Cell(const char* species, int ploidy, int chromosomes,int genesPerChromosome, int telomere, const char* genome): species(new char[strlen(species == nullptr ? "UNKNOWN" : species) + 1]){
+	strcpy(this->species, species == nullptr ? "UNKNOWN" : species);
+	this->ploidy = 0;
+	this->chromosomeCount = 0;
+	this->genesPerChromosome = 0;
+	this->chromosomes = nullptr;
+	this->valid = false;
+	Cell::liveCells++;
+	Cell::totalCreated++;
+	if (!this->validSpecies(species)){
+		return;
+	}
+	if (ploidy != 1 && ploidy != 2){
+		return;
+	}
+	if (chromosomes < 1 || chromosomes > 16){
+		return;
+	}
+	if (ploidy == 2 && chromosomes % 2 != 0){
+		return;
+	}
+	if (genesPerChromosome < 1 || genesPerChromosome > 12){
+		return;
+	}
+	if (telomere < 0 || telomere > 50){
+		return;
+	}
+	if (genome == nullptr){
+		return;
+	}
+	int expectedLength = chromosomes * genesPerChromosome;
+	if (static_cast<int>(strlen(genome)) != expectedLength){
+		return;
+	}
+	for (int i = 0; i < expectedLength; i++){
+		if (!((genome[i] >= 'A' && genome[i] <= 'Z') || (genome[i] >= 'a' && genome[i] <= 'z'))){
+			return;
+		}
+	}
+	if (ploidy == 2){
+		for (int pair = 0; pair < chromosomes / 2; pair++){
+			for (int locus = 0; locus < genesPerChromosome; locus++){
+				int first = (pair * 2) * genesPerChromosome + locus;
+				int second = (pair * 2 + 1) * genesPerChromosome + locus;
+				char a = genome[first];
+				char b = genome[second];
+				if (a >= 'a' && a <= 'z'){
+					a = a - 'a' + 'A';
+				}
+				if (b >= 'a' && b <= 'z'){
+					b = b - 'a' + 'A';
+				}
+				if (a != b){
+					return;
+				}
+			}
+		}
+	}
+	this->ploidy = ploidy;
+	this->chromosomeCount = chromosomes;
+	this->genesPerChromosome = genesPerChromosome;
+	this->chromosomes = new Chromosome[chromosomes];
+	for (int i = 0; i < chromosomes; i++){
+		this->chromosomes[i].id = i;
+		this->chromosomes[i].geneCount = genesPerChromosome;
+		this->chromosomes[i].telomere = telomere;
+		this->chromosomes[i].genes = new Chromosome::Gene[genesPerChromosome];
+		for (int j = 0; j < genesPerChromosome; j++){
+			this->chromosomes[i].genes[j].allele =genome[i * genesPerChromosome + j];
+			this->chromosomes[i].genes[j].locus = j;
+		}
+	}
+	this->valid = true;
+}
+Cell::Cell(const char* species, int ploidy, int chromosomes,int genesPerChromosome, const char* genome): Cell(species, ploidy, chromosomes, genesPerChromosome, 12, genome){}
+Cell::Cell(const Cell& other): species(new char[strlen(other.species) + 1]){
+	strcpy(this->species, other.species);
+	this->ploidy = other.ploidy;
+	this->chromosomeCount = other.chromosomeCount;
+	this->genesPerChromosome = other.genesPerChromosome;
+	this->valid = other.valid;
+	this->chromosomes = nullptr;
+	Cell::liveCells++;
+	Cell::totalCreated++;
+	if (other.chromosomeCount > 0 && other.chromosomes != nullptr){
+		this->chromosomes = new Chromosome[other.chromosomeCount];
+		for (int i = 0; i < other.chromosomeCount; i++){
+			this->chromosomes[i].id = other.chromosomes[i].id;
+			this->chromosomes[i].geneCount = other.chromosomes[i].geneCount;
+			this->chromosomes[i].telomere = other.chromosomes[i].telomere;
+			int count = other.chromosomes[i].geneCount;
+			if (count > 0){
+				this->chromosomes[i].genes = new Chromosome::Gene[count];
+				for (int j = 0; j < count; j++){
+					this->chromosomes[i].genes[j].allele = other.chromosomes[i].genes[j].allele;
+					this->chromosomes[i].genes[j].locus = other.chromosomes[i].genes[j].locus;
+				}
+			}
+		}
+	}
+}
+Cell::~Cell(){
+	delete[] this->chromosomes;
+	delete[] this->species;
+	Cell::liveCells--;
+}
+bool Cell::isValid() const{
+	return this->valid;
+}
+const char* Cell::getSpecies() const{
+	return this->species;
+}
+int Cell::getPloidy() const{
+	return this->ploidy;
+}
+int Cell::getChromosomeCount() const{
+	return this->chromosomeCount;
+}
+int Cell::getGenesPerChromosome() const{
+	return this->genesPerChromosome;
+}
+int Cell::getTelomere(int chromosome) const{
+	if (!this->valid){
+		return 0;
+	}
+	return this->chromosomes[chromosome].getTelomere();
+}
+bool Cell::setTelomere(int chromosome, int value){
+	if (!this->valid){
+		return false;
+	}
+	if (chromosome < 0 || chromosome >= this->chromosomeCount){
+		return false;
+	}
+	if (value < 0 || value > 50){
+		return false;
+	}
+	this->chromosomes[chromosome].setTelomere(value);
+	return true;
+}
+Cell::Chromosome& Cell::getChromosome(int index)
+{
+	return this->chromosomes[index];
+}
+
+const Cell::Chromosome& Cell::getChromosome(int index) const
+{
+	return this->chromosomes[index];
+}
+char* Cell::genomeString() const{
+	if (!this->valid){
+		char* result = new char[4];
+		strcpy(result, "N/A");
+		return result;
+	}
+	int length = this->chromosomeCount * this->genesPerChromosome;
+	int totalLength = length + this->chromosomeCount;
+	char* result = new char[totalLength + 1];
+	int position = 0;
+	for (int i = 0; i < this->chromosomeCount; i++){
+		for (int j = 0; j < this->genesPerChromosome; j++){
+			result[position] = this->chromosomes[i].gene(j).allele;
+			position++;
+		}
+		if (i < this->chromosomeCount - 1){
+			result[position] = '-';
+			position++;
+		}
+	}
+	result[position] = '\0';
+	return result;
+}
+char Cell::phenotype(int pair, int locus) const{
+	if (!this->valid){
+		return '?';
+	}
+	if (locus < 0 || locus >= this->genesPerChromosome){
+		return '?';
+	}
+	if (this->ploidy == 1){
+		if (pair < 0 || pair >= this->chromosomeCount){
+			return '?';
+		}
+		return this->chromosomes[pair].gene(locus).allele;
+	}
+	if (pair < 0 || pair >= this->chromosomeCount / 2){
+		return '?';
+	}
+	char first = this->chromosomes[pair * 2].gene(locus).allele;
+	char second = this->chromosomes[pair * 2 + 1].gene(locus).allele;
+	if ((first >= 'A' && first <= 'Z') || (second >= 'A' && second <= 'Z')){
+		if (first >= 'a' && first <= 'z'){
+			first = first - 'a' + 'A';
+		}
+		return first;
+	}
+	if (first >= 'A' && first <= 'Z'){
+		first = first - 'A' + 'a';
+	}
+	return first;
+}
+int Cell::totalLoci() const{
+	if (!this->valid){
+		return 0;
+	}
+	if (this->ploidy == 2){
+		return (this->chromosomeCount / 2) *
+			this->genesPerChromosome;
+	}
+	return this->chromosomeCount * this->genesPerChromosome;
+}
+int Cell::dominantCount() const{
+	if (!this->valid){
+		return 0;
+	}
+	int count = 0;
+	if (this->ploidy == 1){
+		for (int chromosome = 0; chromosome < this->chromosomeCount; chromosome++){
+			for (int locus = 0; locus < this->genesPerChromosome; locus++){
+				char allele = this->phenotype(chromosome, locus);
+				if (allele >= 'A' && allele <= 'Z'){
+					count++;
+				}
+			}
+		}
+	}
+	else{
+		for (int pair = 0; pair < this->chromosomeCount / 2; pair++){
+			for (int locus = 0; locus < this->genesPerChromosome; locus++){
+				char allele = this->phenotype(pair, locus);
+				if (allele >= 'A' && allele <= 'Z'){
+					count++;
+				}
+			}
+		}
+	}
+	return count;
+}
+double Cell::dominantRatio() const{
+	int total = this->totalLoci();
+	if (total == 0){
+		return 0.0;
+	}
+	return static_cast<double>(this->dominantCount()) / total;
+}
+int Cell::countAllele(char allele) const{
+	if (!this->valid){
+		return 0;
+	}
+	int count = 0;
+	for (int i = 0; i < this->chromosomeCount; i++){
+		for (int j = 0; j < this->genesPerChromosome; j++){
+			if (this->chromosomes[i].gene(j).allele == allele){
+				count++;
+			}
+		}
+	}
+	return count;
+}
+int Cell::countAllele(char allele, int chromosome) const{
+	if (!this->valid){
+		return 0;
+	}
+	if (chromosome < 0 || chromosome >= this->chromosomeCount){
+		return 0;
+	}
+	int count = 0;
+	for (int j = 0; j < this->genesPerChromosome; j++){
+		if (this->chromosomes[chromosome].gene(j).allele == allele){
+			count++;
+		}
+	}
+	return count;
+}
+bool Cell::sameGenome(const Cell& other) const{
+	if (!this->valid || !other.valid){
+		return false;
+	}
+	if (strcmp(this->species, other.species) != 0){
+		return false;
+	}
+	if (this->ploidy != other.ploidy ||this->chromosomeCount != other.chromosomeCount ||this->genesPerChromosome != other.genesPerChromosome){
+		return false;
+	}
+	for (int i = 0; i < this->chromosomeCount; i++){
+		for (int j = 0; j < this->genesPerChromosome; j++){
+			if (this->chromosomes[i].gene(j).allele !=other.chromosomes[i].gene(j).allele){
+				return false;
+			}
+		}
+	}
+	return true;
+}
+Cell& Cell::irradiate(int bp){
+	if (!this->valid){
+		return *this;
+	}
+	if (bp < 0){
+		bp = 0;
+	}
+	else if (bp > 10000){
+		bp = 10000;
+	}
+	for (int i = 0; i < this->chromosomeCount; i++){
+		for (int j = 0; j < this->genesPerChromosome; j++){
+			Cell::seed = Cell::seed * 6364136223846793005ULL+ 1442695040888963407ULL;
+			uint64_t d = Cell::seed;
+			if (((d >> 33) % 10000) < static_cast<uint64_t>(bp)){
+				this->chromosomes[i].gene(j).flipCase();
+				Cell::totalMutations++;
+			}
+		}
+	}
+	return *this;
+}
+Cell& Cell::irradiate(int bp, uint64_t seed){
+	if (!this->valid){
+		return *this;
+	}
+	if (bp < 0){
+		bp = 0;
+	}
+	else if (bp > 10000){
+		bp = 10000;
+	}
+	uint64_t localState = seed;
+	for (int i = 0; i < this->chromosomeCount; i++){
+		for (int j = 0; j < this->genesPerChromosome; j++){
+			localState = localState * 6364136223846793005ULL+ 1442695040888963407ULL;
+			uint64_t d = localState;
+			if (((d >> 33) % 10000) < static_cast<uint64_t>(bp)){
+				this->chromosomes[i].gene(j).flipCase();
+				Cell::totalMutations++;
+			}
+		}
+	}
+	return *this;
+}
+
+
+
+
+
+
+Cell::Cell(): species(new char[8]){strcpy(this->species, "UNKNOWN");
+	this->ploidy = 0;
+	this->chromosomeCount = 0;
+	this->genesPerChromosome = 0;
+	this->chromosomes = nullptr;
+	this->valid = false;
+	Cell::liveCells++;
+}
 Cell::Chromosome::Chromosome(){
 	this->id = 0;
 	this->geneCount = 0;
