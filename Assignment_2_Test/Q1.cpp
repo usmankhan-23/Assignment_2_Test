@@ -342,6 +342,221 @@ int Member::work(const Lock& lock){
     return time;
 }
 
+class Vault {
+private:
+    char* name;
+    u32 baseValue;
+    u64 exponent;
+    u32 modulus;
+    int startTime;
+    int endTime;
+    Lock** locks;
+    int count;
+    int lockCapacity;
+    static int liveCount;
+    Vault& operator=(const Vault&);
+public:
+    Vault(const char* name, u32 base, u64 exp, u32 m,int windowStart, int windowEnd);
+    Vault(const Vault& other);
+    ~Vault();
+    const char* getName() const;
+    int windowStart() const;
+    int windowEnd() const;
+    int addLock(Lock* lock);
+    int addLock(const char* name, char type, u32 p1, u32 p2,int baseTime);
+    bool removeLock(int index);
+    int findLock(const char* name) const;
+    int lockCount() const;
+    int capacity() const;
+    int crackedCount() const;
+    const Lock* getLock(int index) const;
+    Lock* getLock(int index);
+    bool isOpen() const;
+    u32 key() const;
+    int noise() const;
+    u32 loot() const;
+    static int live();
+};
+int Vault::liveCount = 0;
+Vault::Vault(const char* name, u32 base, u64 exp, u32 m,int windowStart, int windowEnd): name(new char[std::strlen(name) + 1]),baseValue(base),exponent(exp),modulus(m),startTime(windowStart),endTime(windowEnd),locks(new Lock* [2]),count(0),lockCapacity(2){
+    std::strcpy(this->name, name);
+    locks[0] = nullptr;
+    locks[1] = nullptr;
+    liveCount++;
+}
+Vault::Vault(const Vault& other): name(new char[std::strlen(other.name) + 1]),baseValue(other.baseValue),exponent(other.exponent),modulus(other.modulus),startTime(other.startTime),endTime(other.endTime),locks(new Lock* [other.lockCapacity]),count(other.count),lockCapacity(other.lockCapacity){
+    std::strcpy(name, other.name);
+    for (int i = 0; i < lockCapacity; i++){
+        locks[i] = nullptr;
+    }
+    for (int i = 0; i < count; i++){
+        locks[i] = other.locks[i];
+        locks[i]->addRef();
+    }
+    liveCount++;
+}
+Vault::~Vault(){
+    for (int i = 0; i < count; i++){
+        if (locks[i]->release()){
+            delete locks[i];
+        }
+    }
+    delete[] locks;
+    delete[] name;
+    liveCount--;
+}
+const char* Vault::getName() const{
+    return name;
+}
+int Vault::windowStart() const{
+    return startTime;
+}
+int Vault::windowEnd() const{
+    return endTime;
+}
+int Vault::live(){
+    return liveCount;
+}
+int Vault::addLock(Lock* lock){
+    if (lock == nullptr || count >= 20){
+        return -1;
+    }
+    for (int i = 0; i < count; i++){
+        if (locks[i] == lock){
+            return -1;
+        }
+    }
+    if (count == lockCapacity){
+        int newCapacity = lockCapacity * 2;
+        if (newCapacity > 20){
+            newCapacity = 20;
+        }
+        Lock** newLocks = new Lock * [newCapacity];
+        for (int i = 0; i < count; i++){
+            newLocks[i] = locks[i];
+        }
+        for (int i = count; i < newCapacity; i++){
+            newLocks[i] = nullptr;
+        }
+        delete[] locks;
+        locks = newLocks;
+        lockCapacity = newCapacity;
+    }
+    locks[count] = lock;
+    lock->addRef();
+    int index = count;
+    count++;
+    return index;
+}
+int Vault::addLock(const char* name, char type, u32 p1, u32 p2,int baseTime) {
+    if (count >= 20){
+        return -1;
+    }
+    Lock* lock = new Lock(name, type, p1, p2, baseTime);
+    int index = addLock(lock);
+    if (index == -1){
+        delete lock;
+    }
+    return index;
+}
+bool Vault::removeLock(int index){
+    if (index < 0 || index >= count){
+        return false;
+    }
+    Lock* lock = locks[index];
+    if (lock->release()){
+        delete lock;
+    }
+    for (int i = index; i < count - 1; i++){
+        locks[i] = locks[i + 1];
+    }
+    count--;
+    locks[count] = nullptr;
+    return true;
+}
+int Vault::findLock(const char* name) const{
+    if (name == nullptr){
+        return -1;
+    }
+    for (int i = 0; i < count; i++){
+        if (std::strcmp(locks[i]->getName(), name) == 0){
+            return i;
+        }
+    }
+    return -1;
+}
+int Vault::lockCount() const{
+    return count;
+}
+int Vault::capacity() const{
+    return lockCapacity;
+}
+int Vault::crackedCount() const{
+    int result = 0;
+    for (int i = 0; i < count; i++){
+        if (locks[i]->isCracked()){
+            result++;
+        }
+    }
+    return result;
+}
+const Lock* Vault::getLock(int index) const{
+    if (index < 0 || index >= count){
+        return nullptr;
+    }
+    return locks[index];
+}
+Lock* Vault::getLock(int index){
+    if (index < 0 || index >= count){
+        return nullptr;
+    }
+    return locks[index];
+}
+bool Vault::isOpen() const{
+    for (int i = 0; i < count; i++){
+        if (!locks[i]->isCracked()){
+            return false;
+        }
+    }
+    return true;
+}
+u32 Vault::key() const{
+    if (!isOpen()){
+        return 0;
+    }
+    u32 k = 0;
+    for (int i = 0; i < count; i++){
+        k = (k << 5) | (k >> 27);
+        k = k ^ locks[i]->getCode();
+    }
+    return k;
+}
+int Vault::noise() const{
+    u32 value = key();
+    int result = 0;
+    while (value > 0){
+        result += value & 1u;
+        value = value >> 1;
+    }
+    return result;
+}
+u32 Vault::loot() const{
+    if (modulus == 0){
+        return 0;
+    }
+    u32 result = 1 % modulus;
+    u32 factor = baseValue % modulus;
+    u64 power = exponent;
+    while (power > 0){
+        if (power % 2 == 1){
+            result = (u64(result) * factor) % modulus;
+        }
+        factor = (u64(factor) * factor) % modulus;
+        power = power / 2;
+    }
+    return result;
+}
+
 
 
 
