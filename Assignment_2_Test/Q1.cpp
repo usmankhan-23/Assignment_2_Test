@@ -557,6 +557,186 @@ u32 Vault::loot() const{
     return result;
 }
 
+class Crew {
+private:
+    char* name;
+    Member** members;
+    int count;
+    int capacity;
+    static int liveCount;
+    Crew& operator=(const Crew&);
+public:
+    Crew(const char* name);
+    Crew(const Crew& other);
+    ~Crew();
+    const char* getName() const;
+    int memberCount() const;
+    int addMember(const Member& member);
+    int addMember(const char* name, int skill);
+    const Member* getMember(int index) const;
+    Member* getMember(int index);
+    int findMember(const char* name) const;
+    int estimate(const Vault& vault) const;
+    int execute(Vault& vault);
+    static int live();
+};
+int Crew::liveCount = 0;
+Crew::Crew(const char* name): name(new char[std::strlen(name) + 1]),members(new Member* [2]),count(0),capacity(2){
+    std::strcpy(this->name, name);
+    members[0] = nullptr;
+    members[1] = nullptr;
+    liveCount++;
+}
+Crew::Crew(const Crew& other): name(new char[std::strlen(other.name) + 1]),members(new Member* [other.capacity]),count(other.count),capacity(other.capacity){
+    std::strcpy(name, other.name);
+    for (int i = 0; i < capacity; i++){
+        members[i] = nullptr;
+    }
+    for (int i = 0; i < count; i++){
+        members[i] = new Member(*other.members[i]);
+    }
+    liveCount++;
+}
+Crew::~Crew(){
+    for (int i = 0; i < count; i++){
+        delete members[i];
+    }
+    delete[] members;
+    delete[] name;
+    liveCount--;
+}
+const char* Crew::getName() const{
+    return name;
+}
+int Crew::memberCount() const{
+    return count;
+}
+int Crew::live(){
+    return liveCount;
+}
+const Member* Crew::getMember(int index) const{
+    if (index < 0 || index >= count){
+        return nullptr;
+    }
+    return members[index];
+}
+Member* Crew::getMember(int index){
+    if (index < 0 || index >= count){
+        return nullptr;
+    }
+    return members[index];
+}
+int Crew::findMember(const char* name) const{
+    if (name == nullptr){
+        return -1;
+    }
+    for (int i = 0; i < count; i++){
+        if (std::strcmp(members[i]->getName(), name) == 0){
+            return i;
+        }
+    }
+    return -1;
+}
+
+int Crew::addMember(const Member& member){
+    if (count >= 20) {
+        return -1;
+    }
+    if (count == capacity){
+        int newCapacity = capacity * 2;
+        if (newCapacity > 20){
+            newCapacity = 20;
+        }
+        Member** newMembers = new Member * [newCapacity];
+        for (int i = 0; i < count; i++){
+            newMembers[i] = members[i];
+        }
+        for (int i = count; i < newCapacity; i++){
+            newMembers[i] = nullptr;
+        }
+        delete[] members;
+        members = newMembers;
+        capacity = newCapacity;
+    }
+    members[count] = new Member(member);
+    int index = count;
+    count++;
+    return index;
+}
+int Crew::addMember(const char* name, int skill){
+    if (count >= 20 || name == nullptr){
+        return -1;
+    }
+    Member member(name, skill);
+    return addMember(member);
+}
+int Crew::estimate(const Vault& vault) const{
+    if (count == 0){
+        return -1;
+    }
+    Member** tempMembers = new Member * [count];
+    int* finish = new int[count];
+    for (int i = 0; i < count; i++){
+        tempMembers[i] = new Member(*members[i]);
+        finish[i] = 0;
+    }
+    int totalLocks = vault.lockCount();
+    const Lock** locksToDo = new const Lock * [totalLocks];
+    int lockCount = 0;
+    for (int i = 0; i < totalLocks; i++){
+        const Lock* lock = vault.getLock(i);
+        if (!lock->isCracked()){
+            locksToDo[lockCount] = lock;
+            lockCount++;
+        }
+    }
+    for (int i = 0; i < lockCount - 1; i++){
+        for (int j = 0; j < lockCount - i - 1; j++){
+            if (locksToDo[j]->getBaseTime() <
+                locksToDo[j + 1]->getBaseTime()){
+                const Lock* temp = locksToDo[j];
+                locksToDo[j] = locksToDo[j + 1];
+                locksToDo[j + 1] = temp;
+            }
+        }
+    }
+    int penalty = 0;
+    if (count > 3){
+        penalty = 1;
+    }
+    for (int i = 0; i < lockCount; i++){
+        int bestMember = 0;
+        int bestFinish = finish[0] +
+            tempMembers[0]->timeFor(*locksToDo[i]) + penalty;
+        for (int j = 1; j < count; j++){
+            int candidate = finish[j] +
+                tempMembers[j]->timeFor(*locksToDo[i]) + penalty;
+            if (candidate < bestFinish){
+                bestFinish = candidate;
+                bestMember = j;
+            }
+        }
+        finish[bestMember] = bestFinish;
+        tempMembers[bestMember]->work(*locksToDo[i]);
+    }
+    int duration = 1;
+    for (int i = 0; i < count; i++){
+        if (finish[i] > duration){
+            duration = finish[i];
+        }
+    }
+    for (int i = 0; i < count; i++){
+        delete tempMembers[i];
+    }
+    delete[] tempMembers;
+    delete[] finish;
+    delete[] locksToDo;
+    return duration;
+}
+
+
+
+
 
 
 
