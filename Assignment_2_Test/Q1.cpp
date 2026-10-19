@@ -14,7 +14,6 @@ private:
     static int liveCount;
 
     Gadget& operator=(const Gadget&);
-
 public:
     Gadget(const char* name, char type, int bonus, int uses);
     Gadget(const Gadget& other);
@@ -93,7 +92,6 @@ private:
 
     Lock(const Lock&);
     Lock& operator=(const Lock&);
-
 public:
     Lock();
     Lock(const char* name, char type, u32 p1, u32 p2, int baseTime);
@@ -202,6 +200,108 @@ bool Lock::verify(u32 candidate) const{
     }
     return false;
 }
+
+class Member {
+private:
+    char* name;
+    int skill;
+    int jobs;
+    Gadget** gadgets;
+    int count;
+    int capacity;
+    static int liveCount;
+    Member& operator=(const Member&);
+public:
+    Member(const char* name, int skill);
+    Member(const Member& other);
+    ~Member();
+    const char* getName() const;
+    int getSkill() const;
+    int getJobs() const;
+    int gadgetCount() const;
+    const Gadget* getGadget(int index) const;
+    int addGadget(const Gadget& gadget);
+    int addGadget(const char* name, char type, int bonus, int uses);
+    int effectiveSkill() const;
+    int bonusFor(char lockType) const;
+    int timeFor(const Lock& lock) const;
+    int work(const Lock& lock);
+    static int live();
+};
+int Member::liveCount = 0;
+Member::Member(const char* name, int skill): name(new char[std::strlen(name) + 1]),skill(skill),jobs(0),gadgets(new Gadget* [2]),count(0),capacity(2){
+    std::strcpy(this->name, name);
+    gadgets[0] = nullptr;
+    gadgets[1] = nullptr;
+    liveCount++;
+}
+Member::Member(const Member& other): name(new char[std::strlen(other.name) + 1]),skill(other.skill),jobs(other.jobs),gadgets(new Gadget* [other.capacity]),count(other.count),capacity(other.capacity){
+    std::strcpy(name, other.name);
+    for (int i = 0; i < capacity; i++){
+        gadgets[i] = nullptr;
+    }
+    for (int i = 0; i < count; i++){
+        gadgets[i] = new Gadget(*other.gadgets[i]);
+    }
+    liveCount++;
+}
+Member::~Member(){
+    for (int i = 0; i < count; i++){
+        delete gadgets[i];
+    }
+    delete[] gadgets;
+    delete[] name;
+    liveCount--;
+}
+int Member::live(){
+    return liveCount;
+}
+const char* Member::getName() const{
+    return name;
+}
+int Member::getSkill() const{
+    return skill;
+}
+int Member::getJobs() const{
+    return jobs;
+}
+int Member::gadgetCount() const{
+    return count;
+}
+const Gadget* Member::getGadget(int index) const{
+    if (index < 0 || index >= count){
+        return nullptr;
+    }
+    return gadgets[index];
+}
+int Member::addGadget(const Gadget& gadget){
+    if (count >= 5){
+        return -1;
+    }
+    if (count == capacity){
+        int newCapacity = capacity * 2;
+        Gadget** newGadgets = new Gadget * [newCapacity];
+        for (int i = 0; i < count; i++){
+            newGadgets[i] = gadgets[i];
+        }
+        for (int i = count; i < newCapacity; i++){
+            newGadgets[i] = nullptr;
+        }
+        delete[] gadgets;
+        gadgets = newGadgets;
+        capacity = newCapacity;
+    }
+    gadgets[count] = new Gadget(gadget);
+    int index = count;
+    count++;
+    return index;
+}
+int Member::addGadget(const char* name, char type, int bonus, int uses){
+    Gadget gadget(name, type, bonus, uses);
+    return addGadget(gadget);
+}
+
+
 
 
 
