@@ -86,6 +86,97 @@ public:
 private:
 	Cell& operator=(const Cell&);
 };
+int Cell::Chromosome::liveCount = 0;
+Cell::Chromosome::Chromosome(){
+	this->id = 0;
+	this->geneCount = 0;
+	this->telomere = 0;
+	this->genes = nullptr;
+	Cell::Chromosome::liveCount++;
+}
+Cell::Chromosome::Chromosome(int id, int geneCount, int telomere){
+	this->id = id;
+	this->geneCount = geneCount > 0 ? geneCount : 0;
+	if (telomere < 0){
+		this->telomere = 0;
+	}
+	else if (telomere > 50){
+		this->telomere = 50;
+	}
+	else{
+		this->telomere = telomere;
+	}
+	if (this->geneCount > 0){
+		this->genes = new Gene[this->geneCount];
+	}
+	else{
+		this->genes = nullptr;
+	}
+	Cell::Chromosome::liveCount++;
+}
+Cell::Chromosome::Chromosome(const Chromosome& other){
+	this->id = other.id;
+	this->geneCount = other.geneCount;
+	this->telomere = other.telomere;
+	if (this->geneCount > 0){
+		this->genes = new Gene[this->geneCount];
+		for (int i = 0; i < this->geneCount; i++){
+			this->genes[i].allele = other.genes[i].allele;
+			this->genes[i].locus = other.genes[i].locus;
+		}
+	}
+	else{
+		this->genes = nullptr;
+	}
+	Cell::Chromosome::liveCount++;
+}
+Cell::Chromosome::~Chromosome(){
+	delete[] this->genes;
+	this->genes = nullptr;
+	Cell::Chromosome::liveCount--;
+}
+int Cell::Chromosome::live(){
+	return Cell::Chromosome::liveCount;
+}
+int Cell::Chromosome::getId() const{
+	return this->id;
+}
+int Cell::Chromosome::getGeneCount() const{
+	return this->geneCount;
+}
+int Cell::Chromosome::getTelomere() const{
+	return this->telomere;
+}
+void Cell::Chromosome::setTelomere(int t){
+	if (t < 0){
+		this->telomere = 0;
+	}
+	else if (t > 50){
+		this->telomere = 50;
+	}
+	else{
+		this->telomere = t;
+	}
+}
+bool Cell::Chromosome::senescent() const{
+	return this->telomere <= 0;
+}
+Cell::Chromosome& Cell::Chromosome::shorten(int amount){
+	this->telomere = this->telomere - amount;
+	if (this->telomere < 0){
+		this->telomere = 0;
+	}
+	else if (this->telomere > 50){
+		this->telomere = 50;
+	}
+	return *this;
+}
+Cell::Chromosome::Gene& Cell::Chromosome::gene(int locus){
+	return this->genes[locus];
+}
+const Cell::Chromosome::Gene& Cell::Chromosome::gene(int locus) const{
+	return this->genes[locus];
+}
 Cell::Chromosome::Gene::Gene(){
 	this->allele = '?';
 	this->locus = -1;
