@@ -301,6 +301,46 @@ int Member::addGadget(const char* name, char type, int bonus, int uses){
     return addGadget(gadget);
 }
 
+int Member::effectiveSkill() const{
+    int result = skill - jobs / 3;
+    if (result < 1){
+        result = 1;
+    }
+    return result;
+}
+
+int Member::bonusFor(char lockType) const{
+    int total = 0;
+    for (int i = 0; i < count; i++){
+        if (gadgets[i]->helps(lockType)){
+            total += gadgets[i]->effectiveBonus(lockType);
+        }
+    }
+    if (total > 100){
+        total = 100;
+    }
+    return total;
+}
+int Member::timeFor(const Lock& lock) const{
+    if (lock.isCracked()){
+        return 0;
+    }
+    int skillValue = effectiveSkill();
+    int bonusValue = bonusFor(lock.getType());
+    int denominator = 100 + 10 * skillValue + bonusValue;
+    int numerator = lock.getBaseTime() * 100;
+    return (numerator + denominator - 1) / denominator;
+}
+int Member::work(const Lock& lock){
+    int time = timeFor(lock);
+    for (int i = 0; i < count; i++){
+        if (gadgets[i]->helps(lock.getType())){
+            gadgets[i]->consume();
+        }
+    }
+    jobs++;
+    return time;
+}
 
 
 
