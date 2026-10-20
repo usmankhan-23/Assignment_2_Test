@@ -686,7 +686,7 @@ int Cell::getRefusedDivisions(){
 	return Cell::refusedDivisions;
 }
 void Cell::resetStatistics(){
-	Cell::totalCreated = Cell::liveCells;
+	Cell::totalCreated = 0;
 	Cell::totalMutations = 0;
 	Cell::totalCrossovers = 0;
 	Cell::refusedDivisions = 0;
