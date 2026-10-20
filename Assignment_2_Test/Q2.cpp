@@ -100,6 +100,9 @@ private:
 	static int copyErrorRate;
 	static int crossoverPercent;
 	bool validSpecies(const char* species) const;
+	static uint64_t nextRandom(uint64_t& state);
+	static void applyCopyErrors(Cell& target, int bp, uint64_t& state);
+	Cell** meiosisImpl(int& produced, uint64_t& state) const;
 	Cell& operator=(const Cell&);
 };
 int Cell::liveCells = 0;
@@ -466,6 +469,203 @@ Cell& Cell::irradiate(int bp, uint64_t seed){
 	}
 	return *this;
 }
+
+Cell* Cell::mitosis(){
+	if (!this->valid){
+		return new Cell();
+	}
+	for (int i = 0; i < this->chromosomeCount; i++){
+		if (this->chromosomes[i].senescent()){
+			Cell::refusedDivisions++;
+			return new Cell();
+		}
+	}
+	for (int i = 0; i < this->chromosomeCount; i++){
+		this->chromosomes[i].shorten(2);
+	}
+	Cell* daughter = new Cell(*this);
+	daughter->irradiate(Cell::copyErrorRate);
+	return daughter;
+}
+Cell* Cell::mitosis(uint64_t seed, int bp){
+	if (!this->valid){
+		return new Cell();
+	}
+	for (int i = 0; i < this->chromosomeCount; i++){
+		if (this->chromosomes[i].senescent()){
+			Cell::refusedDivisions++;
+			return new Cell();
+		}
+	}
+	for (int i = 0; i < this->chromosomeCount; i++){
+		this->chromosomes[i].shorten(2);
+	}
+	Cell* daughter = new Cell(*this);
+	daughter->irradiate(bp, seed);
+	return daughter;
+}
+Cell** Cell::meiosisImpl(int& produced, uint64_t& state) const{
+	produced = 0;
+	if (!this->valid || this->ploidy != 2){
+		return nullptr;
+	}
+	for (int i = 0; i < this->chromosomeCount; i++){
+		if (this->chromosomes[i].senescent()){
+			Cell::refusedDivisions++;
+			return nullptr;
+		}
+	}
+	int pairs = this->chromosomeCount / 2;
+	int g = this->genesPerChromosome;
+	int totalGenes = this->chromosomeCount * g;
+	char* work = new char[totalGenes];
+	for (int i = 0; i < this->chromosomeCount; i++){
+		for (int j = 0; j < g; j++){
+			work[i * g + j] =
+				this->chromosomes[i].gene(j).allele;
+		}
+	}
+	for (int p = 0; p < pairs; p++){
+		uint64_t d = Cell::nextRandom(state);
+		if (g >= 2 && ((d >> 33) % 100) < static_cast<uint64_t>(Cell::crossoverPercent)){
+			int cp = 1 + static_cast<int>((d >> 20) % (g - 1));
+			for (int j = cp; j < g; j++){
+				char temp = work[(p * 2) * g + j];
+				work[(p * 2) * g + j] = work[(p * 2 + 1) * g + j];
+				work[(p * 2 + 1) * g + j] = temp;
+			}
+			Cell::totalCrossovers++;
+		}
+	}
+	int* pole1 = new int[pairs];
+	int* pole2 = new int[pairs];
+	for (int p = 0; p < pairs; p++){
+		uint64_t d = Cell::nextRandom(state);
+		if (((d >> 40) & 1) == 0){
+			pole1[p] = p * 2;
+			pole2[p] = p * 2 + 1;
+		}
+		else{
+			pole1[p] = p * 2 + 1;
+			pole2[p] = p * 2;
+		}
+	}
+	Cell** gametes = new Cell * [4];
+	for (int k = 0; k < 4; k++){
+		char* gameteGenome = new char[pairs * g + 1];
+		int position = 0;
+		for (int p = 0; p < pairs; p++){
+			int chromosome;
+			if (k < 2){
+				chromosome = pole1[p];
+			}
+			else{
+				chromosome = pole2[p];
+			}
+			for (int j = 0; j < g; j++){
+				gameteGenome[position] = work[chromosome * g + j];
+				position++;
+			}
+		}
+		gameteGenome[position] = '\0';
+		gametes[k] = new Cell(this->species, 1, pairs, g, 12, gameteGenome
+		);
+		delete[] gameteGenome;
+		for (int p = 0; p < pairs; p++){
+			int chromosome;
+			if (k < 2){
+				chromosome = pole1[p];
+			}
+			else{
+				chromosome = pole2[p];
+			}
+			int telomere = this->chromosomes[chromosome].getTelomere() - 1;
+			if (telomere < 0){
+				telomere = 0;
+			}
+			gametes[k]->setTelomere(p, telomere);
+		}
+	}
+	for (int k = 0; k < 4; k++){
+		Cell::applyCopyErrors(*gametes[k], Cell::copyErrorRate, state
+		);
+	}
+	delete[] work;
+	delete[] pole1;
+	delete[] pole2;
+	produced = 4;
+	return gametes;
+}
+Cell** Cell::meiosis(int& produced) const{
+	return Cell::meiosisImpl(produced, Cell::seed);
+}
+Cell** Cell::meiosis(int& produced, uint64_t seed) const{
+	uint64_t localState = seed;
+	return Cell::meiosisImpl(produced, localState);
+}
+Cell* Cell::fertilize(const Cell& father, const Cell& mother){
+	if (!father.valid || !mother.valid){
+		return new Cell();
+	}
+	if (father.ploidy != 1 || mother.ploidy != 1){
+		return new Cell();
+	}
+	if (strcmp(father.species, mother.species) != 0){
+		return new Cell();
+	}
+	if (father.chromosomeCount != mother.chromosomeCount || father.genesPerChromosome != mother.genesPerChromosome){
+		return new Cell();
+	}
+	if (father.chromosomeCount * 2 > 16){
+		return new Cell();
+	}
+	int chromosomes = father.chromosomeCount * 2;
+	int genes = father.genesPerChromosome;
+	int totalGenes = chromosomes * genes;
+	char* genome = new char[totalGenes + 1];
+	for (int p = 0; p < father.chromosomeCount; p++){
+		for (int j = 0; j < genes; j++){
+			genome[(p * 2) * genes + j] = father.chromosomes[p].gene(j).allele;
+			genome[(p * 2 + 1) * genes + j] = mother.chromosomes[p].gene(j).allele;
+		}
+	}
+	genome[totalGenes] = '\0';
+	Cell* child = new Cell(father.species,2,chromosomes,genes,12,genome);
+	delete[] genome;
+	for (int p = 0; p < father.chromosomeCount; p++){
+		int fatherTelomere = father.chromosomes[p].getTelomere();
+		int motherTelomere = mother.chromosomes[p].getTelomere();
+		child->setTelomere(p * 2, fatherTelomere);
+		child->setTelomere(p * 2 + 1, motherTelomere);
+	}
+	return child;
+}
+
+uint64_t Cell::nextRandom(uint64_t& state){
+	state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+	return state;
+}
+void Cell::applyCopyErrors(Cell& target, int bp, uint64_t& state){
+	if (!target.valid){
+		return;
+	}
+	if (bp < 0){
+		bp = 0;
+	}
+	else if (bp > 10000){
+		bp = 10000;
+	}
+	for (int i = 0; i < target.chromosomeCount; i++){
+		for (int j = 0; j < target.genesPerChromosome; j++){
+			uint64_t d = Cell::nextRandom(state);
+			if (((d >> 33) % 10000) < static_cast<uint64_t>(bp)){
+				target.chromosomes[i].gene(j).flipCase();
+				Cell::totalMutations++;
+			}
+		}
+	}
+}
+
 
 
 
