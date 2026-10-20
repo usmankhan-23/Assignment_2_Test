@@ -640,6 +640,91 @@ Cell* Cell::fertilize(const Cell& father, const Cell& mother){
 	}
 	return child;
 }
+void Cell::setSeed(uint64_t s){
+	Cell::seed = s;
+}
+uint64_t Cell::getSeed(){
+	return Cell::seed;
+}
+void Cell::setCopyErrorRate(int bp){
+	if (bp < 0){
+		bp = 0;
+	}
+	else if (bp > 10000){
+		bp = 10000;
+	}
+	Cell::copyErrorRate = bp;
+}
+int Cell::getCopyErrorRate(){
+	return Cell::copyErrorRate;
+}
+void Cell::setCrossoverPercent(int p){
+	if (p < 0){
+		p = 0;
+	}
+	else if (p > 100){
+		p = 100;
+	}
+	Cell::crossoverPercent = p;
+}
+int Cell::getCrossoverPercent(){
+	return Cell::crossoverPercent;
+}
+int Cell::getLiveCells(){
+	return Cell::liveCells;
+}
+int Cell::getTotalCreated(){
+	return Cell::totalCreated;
+}
+int Cell::getTotalMutations(){
+	return Cell::totalMutations;
+}
+int Cell::getTotalCrossovers(){
+	return Cell::totalCrossovers;
+}
+int Cell::getRefusedDivisions(){
+	return Cell::refusedDivisions;
+}
+void Cell::resetStatistics(){
+	Cell::totalCreated = Cell::liveCells;
+	Cell::totalMutations = 0;
+	Cell::totalCrossovers = 0;
+	Cell::refusedDivisions = 0;
+	Cell::seed = 0;
+	Cell::copyErrorRate = 100;
+	Cell::crossoverPercent = 50;
+}
+void Cell::print() const{
+	printf("%s | Ploidy: %d | Chromosomes: %d | Genes/Chr: %d | Telomeres: ",this->species,this->valid ? this->ploidy : 0,this->valid ? this->chromosomeCount : 0,this->valid ? this->genesPerChromosome : 0);
+	if (!this->valid){
+		printf("-");
+	}
+	else{
+		for (int i = 0; i < this->chromosomeCount; i++){
+			if (i > 0){
+				printf(",");
+			}
+			printf("%d", this->chromosomes[i].getTelomere());
+		}
+	}
+	int dominant = this->valid ? this->dominantCount() : 0;
+	int total = this->valid ? this->totalLoci() : 0;
+	double ratio = total > 0? static_cast<double>(dominant) / total	: 0.0;
+	printf(" | Dominant: %d/%d (%.2f) | Valid: %s | Genome: ",dominant, total, ratio,this->valid ? "YES" : "NO");
+	if (!this->valid){
+		printf("N/A\n");
+	}
+	else{
+		char* genome = this->genomeString();
+		printf("%s\n", genome);
+		delete[] genome;
+	}
+}
+
+
+
+
+
 
 uint64_t Cell::nextRandom(uint64_t& state){
 	state = state * 6364136223846793005ULL + 1442695040888963407ULL;
