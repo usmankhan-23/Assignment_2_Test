@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="Q1_Public_Tests.cpp" />
+    <ClCompile Include="pch.cpp" />
+    <ClCompile Include="Q2_Public_Tests.cpp" />
+    <ClCompile Include="Q3\main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="pch.h" />
+    <ClInclude Include="Q3\Canvas.h" />
+    <ClInclude Include="Q3\ImageProcessing.h" />
+    <ClInclude Include="Q3\Pixel.h" />
+    <ClInclude Include="Q3\Kernel.h" />
+    <ClInclude Include="Q3\stb_image_write.h" />
+    <ClInclude Include="Q3\stb_image.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
+</Project>
